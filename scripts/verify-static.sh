@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 bash -n scripts/build-frontend.sh scripts/build-backend.sh scripts/build-all.sh scripts/find-nacos-dist.sh
-bash -n packaging/run-docker/build.sh packaging/run-docker/install.sh
+bash -n packaging/run-docker/build.sh packaging/run-docker/install.sh packaging/docker/entrypoint.sh packaging/docker/start.sh
 bash -n packaging/run-k8s/build.sh packaging/run-k8s/install.sh
 python3 -m json.tool console-ui-next/package.json >/dev/null
 [[ -f console-ui-next/build/copyFile.cjs ]] || { echo "missing copyFile.cjs" >&2; exit 1; }

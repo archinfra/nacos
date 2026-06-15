@@ -12,6 +12,7 @@ ENV MODE=standalone \
 
 COPY ${NACOS_TARBALL} /tmp/nacos.tar.gz
 COPY entrypoint.sh /usr/local/bin/nacos-skillhub-entrypoint.sh
+COPY start.sh /usr/local/bin/nacos-skillhub-start.sh
 
 RUN set -eux; \
     mkdir -p /tmp/nacos-extract "${NACOS_HOME}"; \
@@ -20,7 +21,7 @@ RUN set -eux; \
     if [ -z "${extracted}" ]; then extracted=/tmp/nacos-extract; fi; \
     cp -a "${extracted}"/. "${NACOS_HOME}"/; \
     rm -rf /tmp/nacos.tar.gz /tmp/nacos-extract; \
-    chmod +x ${NACOS_HOME}/bin/*.sh /usr/local/bin/nacos-skillhub-entrypoint.sh || true; \
+    chmod +x ${NACOS_HOME}/bin/*.sh /usr/local/bin/nacos-skillhub-entrypoint.sh /usr/local/bin/nacos-skillhub-start.sh || true; \
     mkdir -p ${NACOS_HOME}/logs
 
 WORKDIR ${NACOS_HOME}
@@ -28,4 +29,4 @@ WORKDIR ${NACOS_HOME}
 EXPOSE 8848 9848 9849
 
 ENTRYPOINT ["/usr/local/bin/nacos-skillhub-entrypoint.sh"]
-CMD ["sh", "-c", "bin/startup.sh -m ${MODE} && tail -F logs/start.out"]
+CMD ["/usr/local/bin/nacos-skillhub-start.sh"]

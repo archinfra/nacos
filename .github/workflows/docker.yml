@@ -78,6 +78,7 @@ jobs:
           cp "${DIST_TGZ}" docker-context/nacos.tar.gz
           cp packaging/docker/Dockerfile docker-context/Dockerfile
           cp packaging/docker/entrypoint.sh docker-context/entrypoint.sh
+          cp packaging/docker/start.sh docker-context/start.sh
 
       - name: Login to GHCR
         if: ${{ github.event.inputs.push == 'true' }}

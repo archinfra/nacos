@@ -96,6 +96,7 @@ jobs:
           cp "${DIST_TGZ}" docker-context/nacos.tar.gz
           cp packaging/docker/Dockerfile docker-context/Dockerfile
           cp packaging/docker/entrypoint.sh docker-context/entrypoint.sh
+          cp packaging/docker/start.sh docker-context/start.sh
           sha256sum "release-work/${BIN_NAME}" > "release-work/${BIN_NAME}.sha256"
           echo "binary=release-work/${BIN_NAME}" >> "$GITHUB_OUTPUT"
           echo "binary_name=${BIN_NAME}" >> "$GITHUB_OUTPUT"
