@@ -77,6 +77,7 @@ jobs:
           DIST_TGZ="$(bash scripts/find-nacos-dist.sh)"
           cp "${DIST_TGZ}" docker-context/nacos.tar.gz
           cp packaging/docker/Dockerfile docker-context/Dockerfile
+          cp packaging/docker/entrypoint.sh docker-context/entrypoint.sh
 
       - name: Login to GHCR
         if: ${{ github.event.inputs.push == 'true' }}
