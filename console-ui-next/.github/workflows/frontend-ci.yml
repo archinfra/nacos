@@ -1,0 +1,92 @@
+name: Frontend CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Nacos frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check frontend source
+        id: source
+        shell: bash
+        run: |
+          if [ ! -f package.json ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No package.json found in repository root. Push console-ui-next source first, then rerun this workflow."
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        if: steps.source.outputs.found == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Install dependencies and build
+        if: steps.source.outputs.found == 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          corepack enable || true
+
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+            pnpm run build
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+            yarn build
+          elif [ -f package-lock.json ]; then
+            npm ci
+            npm run build
+          else
+            npm install
+            npm run build
+          fi
+
+      - name: Collect frontend artifacts
+        if: steps.source.outputs.found == 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-artifacts
+
+          for dir in dist build out .output; do
+            if [ -d "$dir" ]; then
+              tar -czf "ci-artifacts/nacos-frontend-${dir}.tar.gz" "$dir"
+            fi
+          done
+
+          ls -lah ci-artifacts
+
+      - name: Upload frontend artifacts
+        if: steps.source.outputs.found == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nacos-frontend-${{ github.sha }}
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

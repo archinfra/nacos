@@ -1,0 +1,121 @@
+name: docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Image version, for example 0.1.0-dev. Empty means short SHA.'
+        required: false
+        default: ''
+      push:
+        description: 'Push image to GHCR'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    name: Build Docker image ${{ matrix.arch }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ github.event.inputs.version }}'
+          if [ -z "${VERSION}" ]; then
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console-ui-next/package-lock.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend and backend
+        shell: bash
+        run: bash scripts/build-all.sh
+
+      - name: Prepare Docker context
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p docker-context docker-artifacts
+          DIST_TGZ="$(bash scripts/find-nacos-dist.sh)"
+          cp "${DIST_TGZ}" docker-context/nacos.tar.gz
+          cp packaging/docker/Dockerfile docker-context/Dockerfile
+
+      - name: Login to GHCR
+        if: ${{ github.event.inputs.push == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image tar
+        shell: bash
+        run: |
+          set -euxo pipefail
+          IMAGE_REF="ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}-${{ matrix.arch }}"
+          docker buildx build \
+            --platform '${{ matrix.platform }}' \
+            --build-arg NACOS_TARBALL=nacos.tar.gz \
+            -t "${IMAGE_REF}" \
+            --output "type=docker,dest=docker-artifacts/nacos-skillhub-${{ steps.version.outputs.version }}-${{ matrix.arch }}-docker.tar" \
+            docker-context
+          gzip -f docker-artifacts/*.tar
+          sha256sum docker-artifacts/*.tar.gz > docker-artifacts/SHA256SUMS
+
+      - name: Push image to GHCR
+        if: ${{ github.event.inputs.push == 'true' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          IMAGE_REF="ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}-${{ matrix.arch }}"
+          docker buildx build \
+            --platform '${{ matrix.platform }}' \
+            --build-arg NACOS_TARBALL=nacos.tar.gz \
+            -t "${IMAGE_REF}" \
+            --push \
+            docker-context
+
+      - name: Upload Docker artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacos-skillhub-docker-${{ steps.version.outputs.version }}-${{ matrix.arch }}
+          path: docker-artifacts/*
+          if-no-files-found: error

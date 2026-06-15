@@ -1,0 +1,107 @@
+name: backend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, develop, 'feature/**']
+    paths:
+      - 'pom.xml'
+      - '*/pom.xml'
+      - 'console/**'
+      - 'server/**'
+      - 'config/**'
+      - 'naming/**'
+      - 'core/**'
+      - 'auth/**'
+      - 'skills/**'
+      - 'nacos-backend-agentkit-registry/**'
+      - 'distribution/**'
+      - 'scripts/build-backend.sh'
+      - 'scripts/build-frontend.sh'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'pom.xml'
+      - '*/pom.xml'
+      - 'console/**'
+      - 'server/**'
+      - 'config/**'
+      - 'naming/**'
+      - 'core/**'
+      - 'auth/**'
+      - 'skills/**'
+      - 'nacos-backend-agentkit-registry/**'
+      - 'distribution/**'
+      - 'scripts/build-backend.sh'
+      - 'scripts/build-frontend.sh'
+      - '.github/workflows/backend.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Nacos SkillHub backend
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console-ui-next/package-lock.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build frontend first
+        shell: bash
+        run: bash scripts/build-frontend.sh
+
+      - name: Build backend distribution
+        shell: bash
+        run: bash scripts/build-backend.sh --skip-frontend
+
+      - name: Collect build artifacts
+        if: success()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-artifacts
+          find distribution/target -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print -exec cp {} ci-artifacts/ \; || true
+          find console/target -maxdepth 1 -type f -name '*.jar' -print -exec cp {} ci-artifacts/ \; || true
+          ls -lah ci-artifacts
+
+      - name: Upload backend artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacos-skillhub-backend-${{ github.sha }}
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacos-skillhub-backend-diagnostics-${{ github.sha }}
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+            **/target/checkstyle-*.xml
+            target/rat.txt
+          if-no-files-found: ignore
+          retention-days: 14

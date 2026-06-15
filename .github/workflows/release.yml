@@ -1,0 +1,175 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without leading v, for example 0.1.0. Empty means current ref name.'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+
+jobs:
+  package:
+    name: Build release assets ${{ matrix.arch }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 220
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT_VERSION='${{ github.event.inputs.version }}'
+          if [ -n "${INPUT_VERSION}" ]; then
+            VERSION="${INPUT_VERSION#v}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_REF_NAME}" -a "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            VERSION="0.0.0-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console-ui-next/package-lock.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend and backend distribution
+        shell: bash
+        run: bash scripts/build-all.sh
+
+      - name: Prepare binary package and Docker context
+        id: dist
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VERSION='${{ steps.version.outputs.version }}'
+          ARCH='${{ matrix.arch }}'
+          mkdir -p release-work docker-context
+          DIST_TGZ="$(bash scripts/find-nacos-dist.sh)"
+          BIN_NAME="nacos-skillhub-${VERSION}-${ARCH}-bin.tar.gz"
+          cp "${DIST_TGZ}" "release-work/${BIN_NAME}"
+          cp "${DIST_TGZ}" docker-context/nacos.tar.gz
+          cp packaging/docker/Dockerfile docker-context/Dockerfile
+          sha256sum "release-work/${BIN_NAME}" > "release-work/${BIN_NAME}.sha256"
+          echo "binary=release-work/${BIN_NAME}" >> "$GITHUB_OUTPUT"
+          echo "binary_name=${BIN_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lah release-work docker-context
+
+      - name: Build Docker image tar
+        id: image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VERSION='${{ steps.version.outputs.version }}'
+          ARCH='${{ matrix.arch }}'
+          PLATFORM='${{ matrix.platform }}'
+          IMAGE_REF="${IMAGE_REPOSITORY}:${VERSION}-${ARCH}"
+          IMAGE_TAR="release-work/nacos-skillhub-${VERSION}-${ARCH}-docker.tar"
+          docker buildx build \
+            --platform "${PLATFORM}" \
+            --build-arg NACOS_TARBALL=nacos.tar.gz \
+            -t "${IMAGE_REF}" \
+            --output "type=docker,dest=${IMAGE_TAR}" \
+            docker-context
+          gzip -f "${IMAGE_TAR}"
+          sha256sum "${IMAGE_TAR}.gz" > "${IMAGE_TAR}.gz.sha256"
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "image_tar_gz=${IMAGE_TAR}.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Build offline .run installer
+        shell: bash
+        run: |
+          set -euxo pipefail
+          chmod +x packaging/offline-run/build.sh packaging/offline-run/install.sh
+          bash packaging/offline-run/build.sh \
+            --arch '${{ matrix.arch }}' \
+            --version '${{ steps.version.outputs.version }}' \
+            --binary '${{ steps.dist.outputs.binary }}' \
+            --docker-image '${{ steps.image.outputs.image_tar_gz }}' \
+            --image-ref '${{ steps.image.outputs.image_ref }}' \
+            --out-dir release-work
+          ls -lah release-work
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacos-skillhub-release-${{ steps.version.outputs.version }}-${{ matrix.arch }}
+          path: release-work/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs: package
+    timeout-minutes: 60
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate release checksum index
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name '*.sha256' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          ls -lah
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nacos SkillHub ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: release-assets/*

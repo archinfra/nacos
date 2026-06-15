@@ -1,0 +1,52 @@
+name: frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, develop, 'feature/**']
+    paths:
+      - 'console-ui-next/**'
+      - 'console/src/main/resources/static/**'
+      - 'scripts/build-frontend.sh'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    paths:
+      - 'console-ui-next/**'
+      - 'console/src/main/resources/static/**'
+      - 'scripts/build-frontend.sh'
+      - '.github/workflows/frontend.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build console-ui-next
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console-ui-next/package-lock.json
+
+      - name: Build frontend and inject into backend static directory
+        shell: bash
+        run: bash scripts/build-frontend.sh
+
+      - name: Upload frontend static artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacos-console-ui-next-${{ github.sha }}
+          path: console/src/main/resources/static/next/
+          if-no-files-found: error
+          retention-days: 14
