@@ -28,6 +28,49 @@ warn() { printf '[WARN] %s\n' "$*" >&2; }
 die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
 
+base64_decoded_len() {
+  local token="$1" len
+  if ! len="$(printf '%s' "${token}" | base64 -d 2>/dev/null | wc -c | tr -d ' ')"; then
+    return 1
+  fi
+  [[ -n "${len}" ]] || return 1
+  printf '%s\n' "${len}"
+}
+
+generate_nacos_auth_token() {
+  local raw random_hex
+  if [[ -r /dev/urandom ]]; then
+    random_hex="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  else
+    random_hex="$(date +%s%N)-$$"
+  fi
+  raw="nacos-skillhub-${PROGRAM_NAME}-$(date +%s%N)-${random_hex}"
+  printf '%s' "${raw}" | base64 | tr -d '\n'
+}
+
+ensure_nacos_auth_token() {
+  local decoded_len raw_len
+  if [[ -z "${AUTH_TOKEN}" ]]; then
+    AUTH_TOKEN="$(generate_nacos_auth_token)"
+    warn "--auth-token not provided. Generated a valid Base64 NACOS_AUTH_TOKEN for this installation. Save the generated Secret if you need stable credentials across reinstall."
+    return 0
+  fi
+
+  if decoded_len="$(base64_decoded_len "${AUTH_TOKEN}")" && [[ "${decoded_len}" -gt 32 ]]; then
+    return 0
+  fi
+
+  raw_len="${#AUTH_TOKEN}"
+  if [[ "${raw_len}" -gt 32 ]]; then
+    warn "--auth-token looks like a raw string, not Base64. Encoding it automatically for Nacos."
+    AUTH_TOKEN="$(printf '%s' "${AUTH_TOKEN}" | base64 | tr -d '\n')"
+    return 0
+  fi
+
+  die "Invalid --auth-token. Nacos requires a Base64 string whose decoded original value is longer than 32 characters. Example: printf '%s' 'your-very-long-secret-over-32-chars' | base64 -w0"
+}
+
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -197,9 +240,7 @@ install_docker() {
   local image_ref
   image_ref="$(first_image_ref)"
   [[ -n "${image_ref}" ]] || die "No image ref found in payload"
-  if [[ "${AUTH_ENABLE}" == "true" && -z "${AUTH_TOKEN}" ]]; then
-    die "--auth-token is required when --auth-enable true"
-  fi
+  ensure_nacos_auth_token
   log "Starting Docker container ${DOCKER_NAME} with image ${image_ref}"
   confirm
   docker rm -f "${DOCKER_NAME}" >/dev/null 2>&1 || true
