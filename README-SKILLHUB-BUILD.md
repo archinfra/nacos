@@ -1,62 +1,59 @@
 # Nacos SkillHub 一体化构建说明
 
-这个仓库是一个完整的一体化 Nacos 二开交付工程，不再只是拿官方 `nacos/nacos-server` 镜像做离线安装包。
-
-它的构建链路是：
+本仓库是 Nacos SkillHub 的一体化源码与交付仓库，包含：
 
 ```text
-console-ui-next 前端源码
-  -> npm run build
+console-ui-next/                         # 前端源码
+console/                                 # Java console 后端
+server/config/naming/auth/...            # Nacos 后端模块
+skills/                                  # SkillHub 相关模块
+packaging/docker/Dockerfile              # Docker 镜像构建
+packaging/k8s/                           # Kubernetes manifest 模板
+packaging/run-docker/                    # 单机 Docker .run 安装器
+packaging/run-k8s/                       # Kubernetes .run 安装器
+.github/workflows/                       # CI/CD
+```
+
+## 构建依赖
+
+源码构建依赖：
+
+```text
+JDK 17+
+Maven 3.6.3+
+Node.js 22+
+npm/pnpm，按前端 lock 文件选择
+```
+
+交付构建依赖：
+
+```text
+Docker
+docker buildx
+QEMU
+tar/gzip/sha256sum
+kubectl，只有验证 k8s 安装器时需要
+```
+
+## 前端与后端关系
+
+前端不是单独部署。默认链路是：
+
+```text
+console-ui-next build
   -> dist/
-  -> 注入 console/src/main/resources/static/next
-  -> Maven 构建 Nacos 后端与 distribution
-  -> 生成 bin 包 / Docker 离线镜像包 / .run 一键安装包
+  -> copy 到 console/src/main/resources/static/next
+  -> Maven 编译 Java console
+  -> distribution 生成 nacos-server tar.gz
 ```
 
-## 目录关系
-
-```text
-console-ui-next/                               # 新控制台前端
-console/                                      # Nacos 控制台 Java 后端
-console/src/main/resources/static/next/       # 前端构建产物注入位置，构建时自动生成
-packaging/docker/Dockerfile                   # 用 distribution tar.gz 构建 Docker 镜像
-packaging/offline-run/                        # .run 自解压安装器
-scripts/build-frontend.sh                     # 构建前端并注入后端静态目录
-scripts/build-backend.sh                      # 构建后端 distribution
-scripts/build-all.sh                          # 前端 + 后端完整构建
-.github/workflows/frontend.yml                # 前端 CI
-.github/workflows/backend.yml                 # 后端 CI
-.github/workflows/docker.yml                  # 手动 Docker 交付构建
-.github/workflows/release.yml                 # tag 后构建 bin/docker/run 多架构 Release
-```
-
-## 修复的前端问题
-
-原来的前端 build 脚本是：
-
-```bash
-rm -rf ../console/src/main/resources/static/next && cp -r dist ../console/src/main/resources/static/next
-```
-
-在目标父目录不存在时会失败：
+之前的错误：
 
 ```text
 cp: cannot create directory '../console/src/main/resources/static/next': No such file or directory
 ```
 
-现在改为：
-
-```json
-"build": "tsc -b && vite build && node build/copyFile.cjs"
-```
-
-`build/copyFile.cjs` 会自动：
-
-1. 检查 `dist/` 是否存在；
-2. 创建 `console/src/main/resources/static/` 父目录；
-3. 删除旧的 `next/`；
-4. 递归复制 `dist/` 到 `next/`；
-5. 校验 `index.html` 是否存在。
+已经通过 `console-ui-next/build/copyFile.cjs` 修复。脚本会自动创建目标目录。
 
 ## 本地构建
 
@@ -65,53 +62,127 @@ bash scripts/build-frontend.sh
 bash scripts/build-backend.sh --skip-frontend
 ```
 
-或者：
+或：
 
 ```bash
 bash scripts/build-all.sh
 ```
 
-## tag 发布
+查找最终 Nacos 发行包：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+bash scripts/find-nacos-dist.sh
 ```
 
-Release 会按 `amd64` 和 `arm64` 构建：
+## 静态校验
+
+```bash
+bash scripts/verify-static.sh
+```
+
+## Release 交付物
+
+`git push origin v0.1.0` 后，`.github/workflows/release.yml` 会构建 `amd64` 和 `arm64` 两套交付物：
 
 ```text
 nacos-skillhub-0.1.0-amd64-bin.tar.gz
 nacos-skillhub-0.1.0-amd64-docker.tar.gz
-nacos-skillhub-0.1.0-amd64.run
-
-nacos-skillhub-0.1.0-arm64-bin.tar.gz
-nacos-skillhub-0.1.0-arm64-docker.tar.gz
-nacos-skillhub-0.1.0-arm64.run
+nacos-skillhub-0.1.0-amd64-docker.run
+nacos-skillhub-0.1.0-amd64-k8s.run
 ```
 
-## .run 安装示例
+arm64 同理。
 
-二进制 systemd 安装：
+## 交付物用途
 
-```bash
-chmod +x nacos-skillhub-0.1.0-amd64.run
-./nacos-skillhub-0.1.0-amd64.run install --install-mode binary -y
-```
+| 交付物 | 用途 |
+|---|---|
+| `-bin.tar.gz` | 二进制软件包，可手工部署或二次封装 systemd |
+| `-docker.tar.gz` | Docker 离线镜像包，只做镜像导入 |
+| `-docker.run` | 单机 Docker 一键安装器 |
+| `-k8s.run` | Kubernetes 一键安装器，支持 namespace、PVC、Service、Deployment |
 
-Docker 安装：
-
-```bash
-./nacos-skillhub-0.1.0-amd64.run install --install-mode docker -y
-```
-
-推送到内网仓库后 Docker 安装：
+## Kubernetes 安装
 
 ```bash
-./nacos-skillhub-0.1.0-amd64.run install \
-  --install-mode docker \
+./nacos-skillhub-0.1.0-amd64-k8s.run install \
+  -n a11 \
+  --release-name nacos-skillhub \
   --registry sealos.hub:5000/kube4 \
   --registry-user admin \
-  --registry-pass 'PASSW9RD' \
+  --registry-pass PASSW9RD \
+  --storage-size 10Gi \
+  --service-type ClusterIP \
   -y
+```
+
+说明：
+
+- `-n/--namespace` 在 `-k8s.run` 中是真正的 Kubernetes namespace。
+- `--registry` 建议必填，安装器会 `docker load -> docker tag -> docker push`，然后将 manifest 中的镜像替换为内网仓库地址。
+- 默认保留 PVC，卸载时不会误删数据。
+
+状态：
+
+```bash
+./nacos-skillhub-0.1.0-amd64-k8s.run status -n a11
+```
+
+卸载：
+
+```bash
+./nacos-skillhub-0.1.0-amd64-k8s.run uninstall -n a11 -y
+```
+
+删除 PVC：
+
+```bash
+./nacos-skillhub-0.1.0-amd64-k8s.run uninstall -n a11 --delete-pvc -y
+```
+
+## Docker 安装
+
+```bash
+./nacos-skillhub-0.1.0-amd64-docker.run install \
+  --docker-name nacos-skillhub \
+  --http-port 8848 \
+  --grpc-port 9848 \
+  --raft-port 9849 \
+  -y
+```
+
+状态：
+
+```bash
+./nacos-skillhub-0.1.0-amd64-docker.run status
+```
+
+卸载：
+
+```bash
+./nacos-skillhub-0.1.0-amd64-docker.run uninstall -y
+```
+
+## Auth 参数
+
+Docker 和 K8s 安装器都支持：
+
+```bash
+--auth-enable true
+--auth-token '<at-least-32-chars-token>'
+--identity-key serverIdentity
+--identity-value security
+```
+
+生产环境建议显式启用认证并设置强随机 token。
+
+## 设计原则
+
+不要再使用一个 `.run` 加 `--install-mode docker|k8s|binary` 混合安装。现在按职责拆分：
+
+```text
+-docker.run 只服务 Docker
+-k8s.run    只服务 Kubernetes
+-docker.tar.gz 只服务离线镜像导入
+-bin.tar.gz 只服务二进制交付
 ```

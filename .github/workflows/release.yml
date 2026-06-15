@@ -121,15 +121,24 @@ jobs:
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "image_tar_gz=${IMAGE_TAR}.gz" >> "$GITHUB_OUTPUT"
 
-      - name: Build offline .run installer
+      - name: Build Docker .run installer
         shell: bash
         run: |
           set -euxo pipefail
-          chmod +x packaging/offline-run/build.sh packaging/offline-run/install.sh
-          bash packaging/offline-run/build.sh \
+          bash packaging/run-docker/build.sh \
             --arch '${{ matrix.arch }}' \
             --version '${{ steps.version.outputs.version }}' \
-            --binary '${{ steps.dist.outputs.binary }}' \
+            --docker-image '${{ steps.image.outputs.image_tar_gz }}' \
+            --image-ref '${{ steps.image.outputs.image_ref }}' \
+            --out-dir release-work
+
+      - name: Build Kubernetes .run installer
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash packaging/run-k8s/build.sh \
+            --arch '${{ matrix.arch }}' \
+            --version '${{ steps.version.outputs.version }}' \
             --docker-image '${{ steps.image.outputs.image_tar_gz }}' \
             --image-ref '${{ steps.image.outputs.image_ref }}' \
             --out-dir release-work
