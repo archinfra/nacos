@@ -1,0 +1,570 @@
+openapi: 3.0.3
+info:
+  title: Nacos SkillHub API
+  version: 3.2.3-skillhub
+  description: |
+    Nacos SkillHub 管理、运行时下载和 Registry 兼容接口契约。
+servers:
+  - url: http://127.0.0.1:8848
+paths:
+  /v3/admin/ai/skills/list:
+    get:
+      summary: List skills for admin
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - name: skillName
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string, enum: [accurate, blur] }
+        - name: orderBy
+          in: query
+          schema: { type: string }
+        - name: owner
+          in: query
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [PUBLIC, PRIVATE] }
+        - name: bizTag
+          in: query
+          schema: { type: string }
+        - name: pageNo
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Skill page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultSkillPage'
+  /v3/admin/ai/skills:
+    get:
+      summary: Get skill metadata
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - $ref: '#/components/parameters/skillName'
+      responses:
+        '200':
+          description: Skill metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultSkillMeta'
+    delete:
+      summary: Delete skill
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - $ref: '#/components/parameters/skillName'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/version:
+    get:
+      summary: Get skill version detail
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - $ref: '#/components/parameters/skillName'
+        - $ref: '#/components/parameters/version'
+      responses:
+        '200':
+          description: Skill version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultSkill'
+  /v3/admin/ai/skills/version/download:
+    get:
+      summary: Download skill version zip
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - $ref: '#/components/parameters/skillName'
+        - $ref: '#/components/parameters/version'
+      responses:
+        '200':
+          description: ZIP package
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /v3/admin/ai/skills/draft:
+    post:
+      summary: Create draft
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                skillName: { type: string }
+                basedOnVersion: { type: string }
+                targetVersion: { type: string }
+                skillCard: { type: string, description: JSON serialized Skill }
+                commitMsg: { type: string }
+              required: [skillName]
+      responses:
+        '200': { $ref: '#/components/responses/StringResult' }
+    put:
+      summary: Update draft
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string }
+          description: Future/optional concurrency guard.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SkillDraftUpdateForm'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+        '409': { description: Resource conflict when If-Match is enforced and mismatched }
+    delete:
+      summary: Delete draft
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - $ref: '#/components/parameters/skillName'
+        - $ref: '#/components/parameters/versionOptional'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/submit:
+    post:
+      summary: Submit draft for review
+      requestBody:
+        $ref: '#/components/requestBodies/SkillVersionForm'
+      responses:
+        '200': { $ref: '#/components/responses/StringResult' }
+  /v3/admin/ai/skills/publish:
+    post:
+      summary: Publish version
+      requestBody:
+        $ref: '#/components/requestBodies/SkillVersionForm'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/online:
+    post:
+      summary: Online skill or version
+      requestBody:
+        $ref: '#/components/requestBodies/SkillVersionScopeForm'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/offline:
+    post:
+      summary: Offline skill or version
+      requestBody:
+        $ref: '#/components/requestBodies/SkillVersionScopeForm'
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/labels:
+    put:
+      summary: Update runtime labels
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                skillName: { type: string }
+                labels:
+                  type: string
+                  example: '{"latest":"v2","stable":"v1"}'
+              required: [skillName, labels]
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/biz-tags:
+    put:
+      summary: Update business tags
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                skillName: { type: string }
+                bizTags:
+                  type: string
+                  example: '["novel","dialogue"]'
+              required: [skillName, bizTags]
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/metadata:
+    put:
+      summary: Update skill metadata
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                skillName: { type: string }
+                skillSet: { type: string }
+                groups: { type: string, example: '["dialogue"]' }
+                keywords: { type: string, example: '["对话","话语权"]' }
+                modelName: { type: string }
+                modelDescription: { type: string }
+                matchHint: { type: string }
+                activation: { type: string }
+                priority: { type: integer }
+              required: [skillName]
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/scope:
+    put:
+      summary: Update skill scope
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                skillName: { type: string }
+                scope: { type: string, enum: [PUBLIC, PRIVATE] }
+              required: [skillName, scope]
+      responses:
+        '200': { $ref: '#/components/responses/OkResult' }
+  /v3/admin/ai/skills/upload:
+    post:
+      summary: Upload one skill ZIP
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                overwrite: { type: boolean, default: false }
+                targetVersion: { type: string }
+                commitMsg: { type: string }
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '200': { $ref: '#/components/responses/StringResult' }
+  /v3/admin/ai/skills/upload/batch:
+    post:
+      summary: Upload multiple skill ZIPs in one archive
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                namespaceId: { type: string, default: public }
+                overwrite: { type: boolean, default: false }
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '200':
+          description: Batch upload result
+          content:
+            application/json:
+              schema:
+                type: object
+  /v3/client/ai/skills:
+    get:
+      summary: Runtime download skill ZIP
+      parameters:
+        - $ref: '#/components/parameters/namespaceId'
+        - name: name
+          in: query
+          required: true
+          schema: { type: string }
+        - name: version
+          in: query
+          required: false
+          schema: { type: string }
+        - name: label
+          in: query
+          required: false
+          schema: { type: string, default: latest }
+        - name: md5
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: ZIP changed or first download
+          headers:
+            ETag:
+              schema: { type: string }
+            X-Nacos-Skill-Md5:
+              schema: { type: string }
+            X-Nacos-Skill-Resolved-Version:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified
+          headers:
+            ETag:
+              schema: { type: string }
+            X-Nacos-Skill-Md5:
+              schema: { type: string }
+            X-Nacos-Skill-Resolved-Version:
+              schema: { type: string }
+  /registry/{namespaceId}/.well-known/agent-skills/index.json:
+    get:
+      summary: Agent skills well-known index
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Well-known index
+          content:
+            application/json:
+              schema:
+                type: object
+  /registry/{namespaceId}/.well-known/agent-skills/{name}/SKILL.md:
+    get:
+      summary: Download SKILL.md
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Skill markdown
+          content:
+            text/plain:
+              schema: { type: string }
+  /registry/{namespaceId}/.well-known/agent-skills/{name}.zip:
+    get:
+      summary: Download public skill ZIP
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Skill zip
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /registry/{namespaceId}/api/search:
+    get:
+      summary: Search public skills
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Search result
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  parameters:
+    namespaceId:
+      name: namespaceId
+      in: query
+      required: false
+      schema: { type: string, default: public }
+    skillName:
+      name: skillName
+      in: query
+      required: true
+      schema: { type: string }
+    version:
+      name: version
+      in: query
+      required: true
+      schema: { type: string }
+    versionOptional:
+      name: version
+      in: query
+      required: false
+      schema: { type: string }
+  requestBodies:
+    SkillVersionForm:
+      required: true
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+            properties:
+              namespaceId: { type: string, default: public }
+              skillName: { type: string }
+              version: { type: string }
+            required: [skillName, version]
+    SkillVersionScopeForm:
+      required: true
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+            properties:
+              namespaceId: { type: string, default: public }
+              skillName: { type: string }
+              version: { type: string }
+              scope: { type: string }
+            required: [skillName]
+  responses:
+    OkResult:
+      description: ok result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ResultString'
+    StringResult:
+      description: string result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ResultString'
+  schemas:
+    ResultString:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data: { type: string }
+    ResultSkill:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          $ref: '#/components/schemas/Skill'
+    ResultSkillMeta:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          $ref: '#/components/schemas/SkillMeta'
+    ResultSkillPage:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            pageNumber: { type: integer }
+            pagesAvailable: { type: integer }
+            totalCount: { type: integer }
+            pageItems:
+              type: array
+              items:
+                $ref: '#/components/schemas/SkillSummary'
+    SkillDraftUpdateForm:
+      type: object
+      properties:
+        namespaceId: { type: string, default: public }
+        skillName: { type: string }
+        version: { type: string }
+        skillCard: { type: string, description: JSON serialized Skill }
+        commitMsg: { type: string }
+      required: [skillName, skillCard]
+    Skill:
+      type: object
+      properties:
+        namespaceId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        version: { type: string }
+        skillSet: { type: string }
+        groups:
+          type: array
+          items: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+        modelName: { type: string }
+        modelDescription: { type: string }
+        matchHint: { type: string }
+        activation: { type: string }
+        priority: { type: integer }
+        skillMd: { type: string }
+        resource:
+          type: object
+          additionalProperties: true
+    SkillSummary:
+      allOf:
+        - $ref: '#/components/schemas/Skill'
+        - type: object
+          properties:
+            owner: { type: string }
+            enable: { type: boolean }
+            bizTags: { type: string }
+            from: { type: string }
+            scope: { type: string }
+            labels:
+              type: object
+              additionalProperties: { type: string }
+            editingVersion: { type: string }
+            reviewingVersion: { type: string }
+            onlineCnt: { type: integer }
+            downloadCount: { type: integer, format: int64 }
+            resourceVersion: { type: string, description: Future concurrency field }
+            digest: { type: string, description: Future content digest field }
+    SkillMeta:
+      allOf:
+        - $ref: '#/components/schemas/SkillSummary'
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                type: object
+                properties:
+                  version: { type: string }
+                  status: { type: string }
+                  author: { type: string }
+                  commitMsg: { type: string }
+                  createTime: { type: integer, format: int64 }
+                  updateTime: { type: integer, format: int64 }
+                  publishPipelineInfo: { type: string }
+                  downloadCount: { type: integer, format: int64 }
